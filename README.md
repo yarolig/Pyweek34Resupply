@@ -10,3 +10,8 @@ dkfjghkdfhgkfdhgL:
 sdkfhdskjfhkdsjfh MIT License
 
 
+
+data/fonts/MeromSans*.ttf
+SIL Open Font License (OFL)
+see data/fonts/OFL.txt
+https://fontlibrary.org/en/font/merom-sans
