@@ -4,6 +4,11 @@
 import pyglet
 from pyglet.gl import *
 from math import sin, cos
+import numpy as np
+from pyrr import Vector3, Vector4, Matrix44
+
+import pyglet.window.key as key
+
 def load_texture(name):
     return pyglet.resource.texture(name)
 
@@ -50,15 +55,17 @@ class HeightMap:
 
 
     def draw(self):
-        tex_scale = 0.33
+        tex_scale = 3.3
+        xy_scale = 10.0
+        z_scale = 50.0
         coords = []
         tex_coords = []
         normals = []
 
         for c, y, x in self.heights.enumcyx():
-            coords.append(x*1.0)
-            coords.append(y*1.0)
-            coords.append(c*4.0)
+            coords.append(x*xy_scale)
+            coords.append(y*xy_scale)
+            coords.append(c*z_scale)
             tex_coords.append(x * tex_scale)
             tex_coords.append(y * tex_scale)
             normals.append(0.0)
@@ -104,33 +111,87 @@ class Level:
     def draw(self):
         pass
 
+UP = Vector3([0,0,1])
+
+def clamp(x, a, b):
+    return max(min(x, b), a)
+
+class Agent:
+    pos = Vector3([0.0,0.0,0.0])
+    vel = Vector3([0.0,0.0,0.0])
+    yaw = 0.0
+    pitch = 0.0
+    def look_dir(self):
+        yaw = self.yaw
+        pitch = self.pitch
+        return Vector3([cos(yaw)*cos(pitch),
+                                   sin(yaw)*cos(pitch),
+                                   sin(pitch)])
+
+    def setup_camera(self):
+        self.pitch = clamp(self.pitch, -3.14/2, 3.14/2)
+        glMatrixMode(GL_MODELVIEW)
+        glLoadIdentity()
+        at = self.pos + self.look_dir()
+        gluLookAt(self.pos[0],self.pos[1],self.pos[2],
+                  at[0],at[1],at[2],
+                  0, 0, 1)
+
+class UserControlls:
+    mdx = 0
+    mdy = 0
+    w = False
+    s = False
+    a = False
+    d = False
+    jump = False
+    crouch = False
+
 
 class MyWindow(pyglet.window.Window):
     inited = False
+    trace_events = False
+    user_controlls = UserControlls()
+    player = Agent()
+    agents = [player]
     def on_key_press(self, symbol, modifiers):
         sstr = pyglet.window.key.symbol_string(symbol)
-        print("on_key_press", locals())
+        if self.trace_events: print("on_key_press", locals())
+        if symbol==key.ESCAPE:
+            self.current_menu.escape_handler[0]()
+
     def on_key_release(self, symbol, modifiers):
         sstr = pyglet.window.key.symbol_string(symbol)
-        print("on_key_release", locals())
+        if self.trace_events: print("on_key_release", locals())
     def on_text(self, text):
-        print("on_text", locals())
+        if self.trace_events: print("on_text", locals())
+
+    def on_mouse_drag(self, x, y, dx, dy, buttons, modifiers):
+        LastMousePos.x = x
+        LastMousePos.y = y
+        self.user_controlls.mdx += dx
+        self.user_controlls.mdy += dy
+        if self.trace_events: print("on_mouse_drag", locals())
+
     def on_mouse_motion(self, x, y, dx, dy):
         LastMousePos.x=x
         LastMousePos.y=y
-        print("on_mouse_motion", locals())
+        self.user_controlls.mdx += dx
+        self.user_controlls.mdy += dy
+        if self.trace_events: print("on_mouse_motion", locals())
     def on_mouse_press(self, x, y, button, modifiers):
         LastMousePos.x=x
         LastMousePos.y=y
-        print("on_mouse_press",locals())
+        if self.trace_events: print("on_mouse_press",locals())
     def on_mouse_release(self, x, y, button, modifiers):
         LastMousePos.x=x
         LastMousePos.y=y
-        self.main_menu.on_click()
-        print("on_mouse_release",locals())
-    def on_mouse_scroll(x, y, scroll_x, scroll_y):
-        print("on_mouse_scroll" ,locals())
+        self.current_menu.on_click()
+        if self.trace_events: print("on_mouse_release",locals())
+    def on_mouse_scroll(self, x, y, scroll_x, scroll_y):
+        if self.trace_events: print("on_mouse_scroll" ,locals())
     def on_resize(self, width, height):
+        if self.trace_events: print("on_resize" ,locals())
         glViewport(0, 0, width, height)
         glMatrixMode(GL_PROJECTION)
         glLoadIdentity()
@@ -145,6 +206,9 @@ class MyWindow(pyglet.window.Window):
         if self.inited:
             return
         self.inited = True
+
+        self.keyboard = pyglet.window.key.KeyStateHandler()
+        self.push_handlers(self.keyboard)
         #pyglet.resource.add_font('data/fonts/MeromSans-Regular.ttf')
         pyglet.font.add_file('data/fonts/MeromSans-Regular.ttf')
 
@@ -160,10 +224,13 @@ class MyWindow(pyglet.window.Window):
         self.time_of_last_fps_redraw = 0
         self.min_fps = 1000
 
+        self.player.pos=Vector3([100.0,100.0,20.0])
+
         class Button:
             x=0
             y=0
             text = 0
+            text_prefix = ''
             def __init__(self,x,y,text):
                 self.label = pyglet.text.Label(text,
                           font_name='Merom Sans',
@@ -177,20 +244,36 @@ class MyWindow(pyglet.window.Window):
                 return self.x <= LastMousePos.x <= self.x + 300 and self.y <= LastMousePos.y <= self.y + 30
 
             def click(self):
+
+                print('Button::click', self.text)
                 if self.is_mouse_inside():
+                    print('Inside!')
                     for f in self.click_handlers:
                         f()
+                    return True
+                return False
             def draw(self):
                 self.label.x=self.x
                 self.label.y=self.y
-                self.label.text=self.text
+                self.label.text=self.text_prefix+self.text
                 if self.is_mouse_inside():
                     self.label.color = (255, 185, 185,255)
                 else:
                     self.label.color = (255, 255, 255, 255)
                 self.label.draw()
 
+        class CheckButton(Button):
+            checked = False
+            text_prefix = '[ ] '
+            def click(self):
+                print('CheckButton::click', self.text)
+                if super(CheckButton, self).click():
+                    self.checked = not self.checked
+                self.text_prefix = '[V] ' if self.checked else '[ ] '
+
         class Menu:
+            exclusive = False
+            escape_handler = [lambda: None]
             def buttons(self):
                 for i in dir(self):
                     if i.startswith('_'):
@@ -210,19 +293,44 @@ class MyWindow(pyglet.window.Window):
                 for i in self.buttons():
                     i.click()
 
+
+        self.no_menu = Menu()
+        self.no_menu.exclusive = True
+
         x = 80
         y = 150
         dy = 34
+
+
         self.main_menu = Menu()
         self.main_menu.new_game = Button(x, y, 'New Game');        y -= dy
+        self.main_menu.new_game.click_handlers.append(lambda: self.change_menu(self.no_menu))
         self.main_menu.optinos = Button(x, y, 'Options');        y -= dy
+        self.main_menu.optinos.click_handlers.append(lambda: self.change_menu(self.options_menu))
         self.main_menu.about = Button(x, y, 'About');        y -= dy
         self.main_menu.exit = Button(x, y, 'Exit');        y -= dy
         self.main_menu.exit.click_handlers.append(lambda: pyglet.app.exit())
 
+        x = 80
+        y = 150
+        dy = 34
+
+        self.options_menu = Menu()
+        self.options_menu.fullscreen = CheckButton(x, y, 'fullscreen');        y -= dy
+        self.options_menu.vsync = CheckButton(x, y, 'vsync');        y -= dy
+        self.options_menu.back = Button(x, y, 'Back');        y -= dy
+        self.options_menu.back.click_handlers.append(lambda: self.change_menu(self.main_menu))
+        self.options_menu.escape_handler=[lambda: self.change_menu(self.main_menu)]
+
+        self.no_menu.escape_handler=[lambda: self.change_menu(self.main_menu)]
+
+        self.current_menu = self.main_menu
 
 
         self.heightmap = HeightMap()
+    def change_menu(self, menu):
+        self.current_menu = menu
+        self.set_exclusive_mouse(self.current_menu.exclusive)
 
 
     def draw_background(self):
@@ -254,7 +362,7 @@ class MyWindow(pyglet.window.Window):
         glEnd()
 
     def update(self, dt):
-        pass
+        self.game_step(dt)
 
     def on_draw(self):
         try:
@@ -272,15 +380,23 @@ class MyWindow(pyglet.window.Window):
         glClearColor(0.3, 0.7, 0.4, 1.0)
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
 
-        self.draw_background()
+        #self.draw_background()
 
+        self.draw3d()
+        self.draw2d()
+
+    def draw2d(self):
+        glMatrixMode(GL_PROJECTION)
+        glLoadIdentity()
+        glOrtho(0, self.width, 0, self.height, -1, 1)
+        glMatrixMode(GL_MODELVIEW)
+        glLoadIdentity()
         fps = pyglet.clock.get_fps()
         self.fps_label.x=20
         self.fps_label.y=self.height-20-24
         self.fps_label.text = "FPS:%.2f" % fps
         self.fps_label.draw()
-        self.main_menu.draw()
-        self.draw3d()
+        self.current_menu.draw()
 
 
     def draw3d(self):
@@ -289,7 +405,9 @@ class MyWindow(pyglet.window.Window):
         gluPerspective(70.0, float(self.width) / self.height, 0.1, 10000)
         glMatrixMode(GL_MODELVIEW)
         glLoadIdentity()
-        gluLookAt(-3+20,-4+20,5, 3+20,4+20,5, 0,0,1)
+
+        self.player.setup_camera()
+        # gluLookAt(-3+20,-4+20,5, 3+20,4+20,5, 0,0,1)
 
 
         self.setup_lights()
@@ -319,6 +437,26 @@ class MyWindow(pyglet.window.Window):
         glDisableClientState(GL_VERTEX_ARRAY)
         return
 '''
+
+    def game_step(self, dt):
+        if not self.inited:
+            return
+        uc = self.user_controlls
+        self.player.yaw -= uc.mdx * 0.001
+        self.player.pitch += uc.mdy * 0.001
+
+        if self.keyboard[key.W]:
+            self.player.pos += self.player.look_dir()
+        if self.keyboard[key.S]:
+            self.player.pos += self.player.look_dir() * -0.1
+        if self.keyboard[key.A]:
+            self.player.pos += (self.player.look_dir() ^ UP) * -0.1
+        if self.keyboard[key.D]:
+            self.player.pos += (self.player.look_dir() ^ UP) * 0.1
+
+        self.user_controlls = UserControlls()
+
+
 
 def run():
     '''
